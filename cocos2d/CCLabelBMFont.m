@@ -439,7 +439,7 @@ void FNTConfigRemoveCache( void )
 @implementation CCLabelBMFont
 
 @synthesize alignment = _alignment;
-@synthesize cascadeColor = _cascadeColor, cascadeOpacity = _cascadeOpacity;
+@synthesize cascadeColorEnabled = _cascadeColorEnabled, cascadeOpacityEnabled = _cascadeOpacityEnabled;
 
 #pragma mark LabelBMFont - Purge Cache
 +(void) purgeCachedData
@@ -512,8 +512,8 @@ void FNTConfigRemoveCache( void )
 
 		_displayedOpacity = _realOpacity = 255;
 		_displayedColor = _realColor = ccWHITE;
-        _cascadeOpacity = YES;
-        _cascadeColor = YES;
+        _cascadeOpacityEnabled = YES;
+        _cascadeColorEnabled = YES;
 
 		_contentSize = CGSizeZero;
 		
@@ -749,7 +749,7 @@ void FNTConfigRemoveCache( void )
 		}
     
 		if(![charSet characterIsMember:c]){
-			CCLOGWARN(@"CCLabelBMFont: Attempted to use character not defined in this bitmap: %C", c);
+			CCLOGWARN(@"cocos2d: CCLabelBMFont: Attempted to use character not defined in this bitmap: %C", c);
 			continue;
 		}
         
@@ -761,7 +761,7 @@ void FNTConfigRemoveCache( void )
 		NSUInteger key = (NSUInteger)c;
 		HASH_FIND_INT(_configuration->_fontDefDictionary , &key, element);
 		if( ! element ) {
-			CCLOGWARN(@"cocos2d: LabelBMFont: characer not found %c", c);
+			CCLOGWARN(@"cocos2d: CCLabelBMFont: characer not found %c", c);
 			continue;
 		}
         
@@ -777,7 +777,14 @@ void FNTConfigRemoveCache( void )
 
 		BOOL hasSprite = YES;
 		fontChar = (CCSprite*) [self getChildByTag:i];
-		if( ! fontChar ) {
+		if( fontChar )
+		{
+			// Reusing previous Sprite
+			fontChar.visible = YES;
+		}
+		else
+		{
+			// New Sprite ? Set correct color, opacity, etc...
 			if( 0 ) {
 				/* WIP: Doesn't support many features yet.
 				 But this code is super fast. It doesn't create any sprite.
@@ -791,14 +798,18 @@ void FNTConfigRemoveCache( void )
 				[self addChild:fontChar z:i tag:i];
 				[fontChar release];
 			}
+			
+			// Apply label properties
+			[fontChar setOpacityModifyRGB:_opacityModifyRGB];
+
+			// Color MUST be set before opacity, since opacity might change color if OpacityModifyRGB is on
+			[fontChar updateDisplayedColor:_displayedColor];
+			[fontChar updateDisplayedOpacity:_displayedOpacity];
 		}
 
 		// updating previous sprite
 		[fontChar setTextureRect:rect rotated:NO untrimmedSize:rect.size];
-		
-		// restore to default in case they were modified
-		fontChar.visible = YES;
-		fontChar.opacity = 255;
+	
         
 		// See issue 1343. cast( signed short + unsigned integer ) == unsigned integer (sign is lost!)
 		NSInteger yOffset = _configuration->_commonHeight - fontDef.yOffset;
@@ -810,24 +821,6 @@ void FNTConfigRemoveCache( void )
 		nextFontPositionX += fontDef.xAdvance + kerningAmount;
 		prev = c;
         
-		// Apply label properties
-		[fontChar setOpacityModifyRGB:_opacityModifyRGB];
-		// Color MUST be set before opacity, since opacity might change color if OpacityModifyRGB is on
-#if CC_CASCADING_COLOR
-		[fontChar setColor:fontChar.color];
-#else 
-        [fontChar updateDisplayedColor];
-#endif
-
-		// only apply opacity if it is different than 255 )
-		// to prevent modifying the color too (issue #610)
-		if( _displayedOpacity != 255 ) {
-#if CC_CASCADING_OPACITY
-            [fontChar setOpacity: fontChar.opacity];
-#else
-            [fontChar updateDisplayedOpacity];
-#endif
-        }
 
 		if (longestLine < nextFontPositionX)
 			longestLine = nextFontPositionX;
@@ -900,15 +893,13 @@ void FNTConfigRemoveCache( void )
 -(void) setColor:(ccColor3B)color
 {
 	_displayedColor = _realColor = color;
-
-#if CC_CASCADING_COLOR
-    [self updateDisplayedColor];
-#else
-	CCSprite *child;
-	CCARRAY_FOREACH(_children, child)
-		[child setColor:color];
-#endif
-
+	
+	if( _cascadeColorEnabled ) {
+		ccColor3B parentColor = ccWHITE;
+		if( [_parent conformsToProtocol:@protocol(CCRGBAProtocol)] && [(id<CCRGBAProtocol>)_parent isCascadeColorEnabled] )
+			parentColor = [(id<CCRGBAProtocol>)_parent displayedColor];
+		[self updateDisplayedColor:parentColor];
+	}
 }
 
 -(GLubyte) opacity
@@ -925,15 +916,13 @@ void FNTConfigRemoveCache( void )
 - (void) setOpacity:(GLubyte)opacity
 {
 	_displayedOpacity = _realOpacity = opacity;
-#if CC_CASCADING_OPACITY
-    [self updateDisplayedOpacity];
-#else
-    id<CCRGBAProtocol> item;
-	CCARRAY_FOREACH(_children, item) {
-        item.opacity = _displayedOpacity;
-    }
-#endif
 
+	if( _cascadeOpacityEnabled ) {
+		GLubyte parentOpacity = 255;
+		if( [_parent conformsToProtocol:@protocol(CCRGBAProtocol)] && [(id<CCRGBAProtocol>)_parent isCascadeOpacityEnabled] )
+			parentOpacity = [(id<CCRGBAProtocol>)_parent displayedOpacity];
+		[self updateDisplayedOpacity:parentOpacity];
+	}
 }
 
 -(void) setOpacityModifyRGB:(BOOL)modify
@@ -950,42 +939,26 @@ void FNTConfigRemoveCache( void )
 	return _opacityModifyRGB;
 }
 
-- (void)updateDisplayedOpacity {
-#if CC_CASCADING_OPACITY
-    if ([self.parent conformsToProtocol:@protocol(CCRGBAProtocol)]
-        && ((id<CCRGBAProtocol>)self.parent).cascadeOpacity) {
-        _displayedOpacity = _realOpacity * ((id<CCRGBAProtocol>)self.parent).displayedOpacity/255.0;
-    }
+- (void)updateDisplayedOpacity:(GLubyte)parentOpacity
+{
+	_displayedOpacity = _realOpacity * parentOpacity/255.0;
 
-    if (_cascadeOpacity) {
-        id<CCRGBAProtocol> item;
-        CCARRAY_FOREACH(_children, item) {
-            if ([item conformsToProtocol:@protocol(CCRGBAProtocol)]) {
-                [item updateDisplayedOpacity];
-            }
-        }
-    }
-#endif
+	CCSprite *item;
+	CCARRAY_FOREACH(_children, item) {
+		[item updateDisplayedOpacity:_displayedOpacity];
+	}
 }
 
-- (void)updateDisplayedColor {
-#if CC_CASCADING_COLOR
-    if ([self.parent conformsToProtocol:@protocol(CCRGBAProtocol)]
-        && ((id<CCRGBAProtocol>)self.parent).cascadeColor) {
-        _displayedColor.r = _realColor.r * ((id<CCRGBAProtocol>)self.parent).displayedColor.r/255.0;
-        _displayedColor.g = _realColor.g * ((id<CCRGBAProtocol>)self.parent).displayedColor.g/255.0;
-        _displayedColor.b = _realColor.b * ((id<CCRGBAProtocol>)self.parent).displayedColor.b/255.0;
-    }
+- (void)updateDisplayedColor:(ccColor3B)parentColor
+{
+	_displayedColor.r = _realColor.r * parentColor.r/255.0;
+	_displayedColor.g = _realColor.g * parentColor.g/255.0;
+	_displayedColor.b = _realColor.b * parentColor.b/255.0;
 
-    if (_cascadeColor) {
-        id<CCRGBAProtocol> item;
-        CCARRAY_FOREACH(_children, item) {
-            if ([item conformsToProtocol:@protocol(CCRGBAProtocol)]) {
-                [item updateDisplayedColor];
-            }
-        }
-    }
-#endif
+	CCSprite *item;
+	CCARRAY_FOREACH(_children, item) {
+		[item updateDisplayedColor:_displayedColor];
+	}
 }
 
 #pragma mark LabelBMFont - AnchorPoint

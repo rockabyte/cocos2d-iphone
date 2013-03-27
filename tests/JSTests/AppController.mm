@@ -8,8 +8,8 @@
 
 // local import
 #import "AppController.h"
-#import "js_bindings_core.h"
-#import "js_bindings_basic_conversions.h"
+#import "jsb_core.h"
+#import "jsb_basic_conversions.h"
 
 // CocosBuilder Reader
 #import "CCBReader.h"
@@ -37,11 +37,11 @@
 	// Create an CCGLView with a RGB8 color buffer, and a depth buffer of 24-bits
 	CCGLView *glView = [CCGLView viewWithFrame:[window_ bounds]
 								   pixelFormat:kEAGLColorFormatRGBA8
-								   depthFormat:0 //GL_DEPTH_COMPONENT24_OES
-							preserveBackbuffer:NO
+								   depthFormat:GL_DEPTH_COMPONENT24_OES
+							preserveBackbuffer:YES
 									sharegroup:nil
 								 multiSampling:NO
-							   numberOfSamples:4];
+							   numberOfSamples:0];
 
 	director_ = (CCDirectorIOS*) [CCDirector sharedDirector];
 
@@ -62,8 +62,8 @@
 	[director_ setDelegate:self];
 
 	// 2D projection
-//	[director_ setProjection:kCCDirectorProjection2D];
-	[director_ setProjection:kCCDirectorProjection3D];
+	[director_ setProjection:kCCDirectorProjection2D];
+//	[director_ setProjection:kCCDirectorProjection3D];
 
 
 	// Enables High Res mode (Retina Display) for CocosDragon
@@ -161,6 +161,9 @@
 
 	CCFileUtils *fileutils = [CCFileUtils sharedFileUtils];
 
+	// Add the "js" folder in the search path, since it is a "blue folder"
+	[fileutils setSearchPath:@[@"js", @""]];
+
 	//
 	// Watermelon
 	//
@@ -189,7 +192,7 @@
 	//
 	else if( [name isEqual:@"JS CocosDragon"] ) {
 		[fileutils setSearchMode:kCCFileUtilsSearchDirectoryMode];
-		[fileutils setSearchPath:@[@"Published files iOS",@""]];
+		[fileutils setSearchPath:@[@"Published files iOS", @"js", @""]];
 
 #if defined(__CC_PLATFORM_MAC)
 		// Use the iPad folder for Mac resources
@@ -214,7 +217,7 @@
 	//
 	else if( [name isEqual:@"JS Crystal Craze"] ) {
 		[fileutils setSearchMode:kCCFileUtilsSearchDirectoryMode];
-		[fileutils setSearchPath:@[@"Published-iOS",@""]];
+		[fileutils setSearchPath:@[@"Published-iOS", @"js", @""]];
 		
 #if defined(__CC_PLATFORM_MAC)
 		// Use the iPhone folder for Mac resources
